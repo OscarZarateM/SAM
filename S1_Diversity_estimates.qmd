@@ -1,0 +1,188 @@
+---
+title: "S1_Diversity estimates"
+format: html
+editor: visual
+---
+```{r}
+library(sf)
+library(tmap)
+library(ape)
+library(nlme)
+library(visreg)
+library(car)
+library(tidyverse)
+library(readxl)
+library(sp)
+library(terra)
+library(iNEXT)
+library(vegan)
+library(DESeq2)
+library(factoextra)
+library(reshape2)
+library(knitr)
+#######################################################
+```
+
+```{r}
+load("Fungi_data.rda")
+```
+
+####Summary
+### All fungi data
+
+Raw numbers
+```{r}
+names(Fungi_Y)
+fungi_summary = data.frame()
+```
+
+Total of OTU
+```{r}
+fungi_summary = rbind(fungi_summary,c("Raw", sum(colSums(Fungi_Y[,-c(1,2)])),length((Fungi_Y$OTU)), length(names(Fungi_Y))-2))
+names(fungi_summary) = c("", "Total reads", "Total OTU" ,"No. Samples")
+```
+
+
+Clean singletons and samples with <100 reads
+```{r}
+##Remove singletons###################################
+Fungi_Y = Fungi_Y[which(rowSums(Fungi_Y[, -c(1,2)]) > 1),]
+dim(Fungi_Y)
+## Sample reads < 100
+low = which(colSums(Fungi_Y[ -c(1,2)]) < 100)
+Fungi_Y = Fungi_Y[, ! names(Fungi_Y) %in% names(low)] 
+##SAM-54 92 reads
+fungi_summary = rbind(fungi_summary,c("Cleaned", sum(colSums(Fungi_Y[,-c(1,2)])),length((Fungi_Y$OTU)), length(names(Fungi_Y))-2))
+kable(fungi_summary)
+```
+Non glomeromycetes
+```{r}
+#Not glomeromycetes
+no_glome = filter(Fungi_C,  Phylum != "Glomeromycota") 
+# non glome comm table
+OTU_no_glome = Fungi_Y [which(Fungi_Y$OTU %in% no_glome$OTU == T),]
+#reads of not glome
+Total = rowSums(OTU_no_glome[, -c(1:2)])
+no_glome = data.frame(OTU_no_glome$OTU, Total)       
+sum(no_glome$Total)
+names(no_glome) = c("OTU", "Total") 
+no_glome = left_join(x=no_glome,y=Fungi_C)
+names(no_glome)
+
+summary_no_glome = no_glome %>% 
+  group_by(Phylum) %>% 
+  summarise(perc = (sum(Total)*100)/sum(no_glome$Total)) %>% 
+  arrange(desc(perc)) %>% 
+  head()
+kable(summary_no_glome, caption = "Reads % most abundand phyla", digits = 2) 
+```
+Mucoromycota = Mortierellales
+```{r}
+otu = row.names(Fungi_Y)
+Fungi_Y = Fungi_Y[, -c(1,2 )]
+Fungi_Y = as.matrix(Fungi_Y)
+row.names(Fungi_Y) = otu
+```
+
+
+## AMF reads summary
+```{r}
+load("SAM_data.rda")
+dim(AMF_Y)
+AMF_summary = data.frame()
+AMF_summary = rbind(AMF_summary,c("Raw", sum(colSums(AMF_Y)),dim(AMF_Y)[1], dim(AMF_Y)[2]))
+names(AMF_summary) = c("", "Total reads", "Total OTU" ,"No. Samples")
+
+##Remove singletons###################################
+AMF_Y = AMF_Y[which(rowSums(AMF_Y) > 1),]
+## Sample reads < 100 
+which(colSums(AMF_Y) < 100)
+#all with more than 100
+AMF_summary = rbind(AMF_summary,c("Cleaned",sum(colSums(AMF_Y)),dim(AMF_Y)[1], dim(AMF_Y)[2]))
+kable(AMF_summary)
+```
+#### Diversity indexes with iNEXT
+
+```{r}
+###iNext############
+AMF_div = iNEXT(AMF_Y, datatype = "abundance")
+AMF_div$DataInfo
+###Diversity estimates: richness
+AMF_div = reshape(AMF_div$AsyEst, idvar = "Assemblage", timevar = "Diversity", direction = "wide")
+AMF_div = AMF_div[, c("Assemblage", "Estimator.Species richness", "Estimator.Shannon diversity",  "Estimator.Simpson diversity")]
+names(AMF_div) = c ("Sample", "Richness", "Shannon", "Simpson")
+```
+
+```{r}
+Fungi_div = iNEXT(Fungi_Y, datatype = "abundance")
+Fungi_div = reshape(Fungi_div$AsyEst, idvar = "Assemblage", timevar = "Diversity", direction = "wide")
+Fungi_div = Fungi_div[, c("Assemblage", "Estimator.Species richness", "Estimator.Shannon diversity",  "Estimator.Simpson diversity")]
+names(Fungi_div) = c ("Sample", "Richness", "Shannon", "Simpson")
+```
+
+
+#### Communities 
+
+```{r}
+##each  column = library
+AMF_vst = varianceStabilizingTransformation(AMF_Y)
+Fungi_vst = varianceStabilizingTransformation(Fungi_Y)
+```
+
+
+
+### Environmental data 
+```{r}
+###Soil ###########################################
+soil = subset(X, select = c(pHKCl,`Ctjurin %`, `P -M3 mg kg-1`,`K-M3 mg kg-1`,
+                            `Ca-M3 mg kg-1`, `Mg-M3 mg kg-1`))
+par(mfrow = c(2,3))
+for (i in names(soil)) {
+  #hist(soil[,i], main =i)
+  qqnorm(soil[,i], main =i, x = i)
+}
+par(mfrow = c(1,1))
+
+soil$log_C = log(soil$`Ctjurin %`)
+soil$log_P = log(soil$`P -M3 mg kg-1`)
+soil$log_K = log(soil$`K-M3 mg kg-1`)
+soil$log_Ca = log(soil$`Ca-M3 mg kg-1`)
+soil$log_Mg = log(soil$`Mg-M3 mg kg-1`)
+
+soil = subset(soil, select = c(pHKCl, log_C, log_P, log_K, log_Ca, log_Mg))
+par(mfrow = c(2,3))
+for (i in names(soil)) {
+  #hist(soil[,i], main =i)
+  qqnorm(soil[,i], main =i)
+}
+par(mfrow = c(1,1))
+### PCA soil
+soil = drop_na(soil) ### Sample 64
+cor(soil)
+pairs(cor(soil))
+###
+pca1 = prcomp(soil, scale. = T)
+pca1
+summary(pca1)
+fviz_pca_var(pca1,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+)
+
+score_pca = scores(pca1)[,c(1,2)]
+### Join X and scores
+X = drop_na(X)
+X= cbind(X, soil)
+X = cbind(X, score_pca)
+X[,2] = NULL
+str(X)
+```
+
+Save
+
+```{r}
+save(AMF_Y, AMF_T, AMF_C, X, AMF_div, AMF_vst, file = "SAM_data.rda")
+save(Fungi_Y, Fungi_C ,X, Fungi_div, Fungi_vst, file = "Fungi_data.rda")
+```
+
