@@ -7,6 +7,8 @@ editor: visual
 ### 
 
 ```{r}
+#| echo: false
+#| warning: false
 library(sf)
 library(tmap)
 library(ape)
@@ -20,6 +22,9 @@ library(tmap)
 library(corrplot)
 library(lme4)
 library(sjstats)
+library(gt)
+library(gtExtras)
+library(gtsummary)
 ```
 
 #### DATA
@@ -31,14 +36,22 @@ library(sjstats)
 -   surround: landscape
 
 ```{r}
+#| echo: false
+#| warning: false
+#| output: false
 load("SAM_data.rda")
 ## Digitalized data
 surround = st_read("surround.gpkg")
 ```
 
-#### Landscape complexity-composition: measure as natural area inside a 100 m r buffer for each point in each Age
+#### Landscape complexity-composition:
+
+Measured as natural (forest, grassland..) area inside a 100 m r buffer for each point in each Age 1, 2, 3
 
 ```{r}
+#| echo: false
+#| warning: false
+#| output: false
 unique(surround$type)
 ## Select only natural elemnets
 natural = subset(surround, type == "forest"| type == "grassland")
@@ -63,4 +76,235 @@ X_sp = st_as_sf(X)
 X = X[, c("Sample", "site", "DEM", "PC1", "PC2", "Age1", "Age2", "Age3")]
 #Try
 #corrplot(cor(X[,-1]),  method = 'circle', diag = FALSE, type = "lower", addCoef.col = 'black')
+## Merge Diversity and X
+data1 = left_join(AMF_div, X)
+###site as factor
+data1$site = as.factor(data1$site)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+map = tm_basemap(NULL)+
+  tm_tiles("https://tiles.maaamet.ee/tm/tms/1.0.0/foto@GMC/{z}/{x}/{y}.png",tms=T)+
+  tm_tiles("https://tiles.maaamet.ee/tm/tms/1.0.0/kaart@GMC/{z}/{x}/{y}.jpg",tms=T)
+tmap_mode("view")
+map+tm_shape(natural_inter) + tm_borders(col="red",lwd=3)
+```
+
+#### Richness AMF
+
+m: linear model with DEM, PC1, PC2 (soil), Age(area), sites
+
+```{r}
+#| echo: false
+#| warning: false
+###Models
+m=lm(log(Richness)~DEM+PC1+PC2+log1p(Age1)+site,data=data1)
+summary(m)
+#plot(m, which = 2)
+```
+
+Not normal
+
+Site n.s and no normality -lm - normality
+
+GLM
+
+-   mg0 : site as factor
+-   mg1: without site
+-   mgl1: With site as random
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+mg0 = glm(round(Richness) ~ (DEM+PC1+PC2+log1p(Age1)+factor(site)),data = data1, family = poisson())
+mg1 = glm(round(Richness) ~ (DEM+PC1+PC2+log1p(Age1)),data = data1, family = poisson())
+mgl1 = glmer(round(Richness)~(DEM+PC1+PC2+log1p(Age1)+(1 |site)),data=data1,family =poisson())
+```
+
+-mg0
+
+```{r}
+#| echo: false
+summary(mg0)
+```
+
+-mg1
+
+```{r}
+#| echo: false
+summary(mg1)
+```
+
+-mgl1
+
+```{r}
+#| echo: false
+summary(mgl1)
+```
+
+```{r}
+#| echo: false
+gt(AIC(mg0 , mg1, mgl1))
+```
+
+-Select mg1
+
+Site no significant and glmer random doesn't explain much. AIC take mg1
+
+#### Fit glm for 3 Ages
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+mg1 = glm(round(Richness) ~ (DEM+PC1+PC2+log1p(Age1)),data = data1, family = poisson())
+mg2 = glm(round(Richness) ~ (DEM+PC1+PC2+log1p(Age2)),data = data1, family = poisson())
+mg3 = glm(round(Richness) ~ (DEM+PC1+PC2+log1p(Age3)),data = data1, family = poisson())
+Variables = c("DEM", "PC1", "PC2", "Area")
+
+r_models = list (mg1, mg2, mg3)
+Res_Rich = data.frame()
+for (mod in r_models) {
+  R_mg =as.data.frame(coef(summary(mod)))
+  Coefficients = c()
+  for (v in 2:5) {
+    Coefficients = c(Coefficients, paste0("b = " ,round(R_mg[v,1],3),"+/-" ,round(R_mg[v,2],3)," p = ",round( R_mg[v,4], 3)))
+  }
+  Res = data.frame(cbind(Variables, Coefficients))
+  Res = rbind(Res, c("Explained deviance", round(with(summary(mod), 1 - deviance/null.deviance)*100,3)))
+  Res_Rich = rbind(Res_Rich, Res)
+}
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+gt_richness = gt(Res_Rich)  
+gt_richness = gt_richness  |> tab_row_group(label = "Age 3",rows = 10:15)|>
+  tab_row_group(label = "Age 2",rows = 5:10)|>
+  tab_row_group(label = "Age 1",rows = 1:5)|>
+  tab_header(title = "Richness AMF")
+gt_richness
+```
+
+```{r}
+#| echo: false
+#| warning: false
+tmap_options(check.and.fix = TRUE)
+data1_sp = st_as_sf(left_join(data1, X_sp[,c("Sample","geom")]))
+map + tm_shape(subset(natural, Age ==1)) +tm_polygons(col = "antiquewhite1")  +
+  tm_shape(subset(natural, Age ==2)) +tm_polygons(col = "antiquewhite2") +
+  tm_shape(subset(natural, Age ==3)) +tm_polygons(col = "antiquewhite3") +
+  tm_shape(data1_sp) +tm_dots( col ="Richness", breaks = c(0,20, 40, 60, 80), size = 0.5) 
+```
+
+### Shannon AMF
+
+-   m0: lm with site as factor
+-   m1: lm without site
+-   mm: site as random
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+m0 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)+site),data=data1)
+m1 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)),data=data1)
+mm = lme(Shannon~(DEM+PC1+PC2+log1p(Age1)),random= ~ 1|site,data=data1,method="ML")
+```
+m0
+```{r}
+#| echo: false
+#| warning: false
+tbl_regression(m0)
+```
+m1
+```{r}
+#| echo: false
+#| warning: false
+tbl_regression(m1)
+```
+mm
+```{r}
+#| echo: false
+#| warning: false
+summary(mm)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+performance::r2(mm)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+gt(AIC(m0, m1, mm))
+```
+
+-   Site n.s and random doesnt explain, AIC select lm (without site)
+
+lm for three ages
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+m1 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)),data=data1)
+m2 = lm(Shannon~(DEM+PC1+PC2+log1p(Age2)),data=data1)
+m3 = lm(Shannon~(DEM+PC1+PC2+log1p(Age3)),data=data1)
+Variables = c("DEM", "PC1", "PC2", "Area")
+r_models = list (m1, m2, m3)
+Res_Shannon = data.frame()
+for (mod in r_models) {
+  R_mg = as.data.frame(summary(mod)$coefficients)
+  Coefficients = c()
+  for (v in 2:5) {
+    Coefficients = c(Coefficients, paste0("b = " ,round(R_mg[v,1],3),"+/-" ,round(R_mg[v,2],3)," p = ",round( R_mg[v,4], 3)))
+  }
+  Res = data.frame(cbind(Variables, Coefficients))
+  Res = rbind(Res, c("Adj.R2", round(summary(mod)$ adj.r.squared, 3)))
+  Res_Shannon = rbind(Res_Shannon, Res)
+}
+```
+
+```{r}
+#| echo: false
+#| warning: false
+gt_Shannon = gt(Res_Shannon)  
+gt_Shannon = gt_Shannon  |> tab_row_group(label = "Age 3",rows = 10:15)|>
+  tab_row_group(label = "Age 2",rows = 5:10)|>
+  tab_row_group(label = "Age 1",rows = 1:5)|>
+  tab_header(title = "Shannon AMF")
+gt_Shannon
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+#For Spatial autocorrelation
+dist=st_distance(st_as_sf(X_sp))
+# Need to make matrix
+dist = matrix(dist,nrow(dist),ncol(dist))
+dists.inv = 1/dist
+diag(dists.inv) = 0
+resid=residuals(mg3)
+Moran.I(resid,dists.inv)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+data1_sp = st_as_sf(left_join(data1, X_sp[,c("Sample","geom")]))
+map + tm_shape(subset(natural, Age ==1)) +tm_polygons(col = "antiquewhite1")  +
+  tm_shape(subset(natural, Age ==2)) +tm_polygons(col = "antiquewhite2") +
+  tm_shape(subset(natural, Age ==3)) +tm_polygons(col = "antiquewhite3") +
+  tm_shape(data1_sp) +tm_dots( col ="Shannon", size = "Shannon") 
 ```
