@@ -14,7 +14,7 @@ library(tmap)
 library(ape)
 library(knitr)
 library(tidyverse)
-library(lme4)
+library(nlme)
 library(visreg)
 library(car)
 library(sjPlot)
@@ -456,9 +456,9 @@ map + tm_shape(subset(natural, Age ==1)) +tm_polygons(col = "antiquewhite1")  +
 -   mm: site as random
 
 ```{r}
-#| echo: false
+
 #| warning: false
-#| output: false
+
 m0 = lm(Shannon~(DEM+PC1+PC2+log1p(Age2)+site),data=data1)
 summary(m0)
 m1 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)),data=data1)
