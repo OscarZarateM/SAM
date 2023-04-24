@@ -1,0 +1,126 @@
+---
+title: "Community dissimilarity"
+format: html
+editor: visual
+---
+
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+library(sf)
+library(tmap)
+library(ape)
+library(knitr)
+library(tidyverse)
+library(nlme)
+library(visreg)
+library(car)
+library(sjPlot)
+library(tmap)
+library(corrplot)
+library(vegan)
+```
+
+#### Landscape complexity-composition:
+
+Measured as natural (forest, grassland..) area inside a 100 m r buffer for each point in each Age 1, 2, 3
+
+```{r}
+#######################################
+set.seed(100)
+##Data
+load("SAM_data.rda")
+load("Fungi_data.rda")
+## Digitalized data
+surround = st_read("surround.gpkg")
+unique(surround$type)
+## Select only natural elemnets
+natural = subset(surround, type == "forest"| type == "grassland")
+## Buffers around points
+buffers = st_buffer (st_as_sf(X), 100)
+## intersection (area that is/was natural)
+natural_inter = st_intersection(buffers, natural)
+## area
+natural_inter$area = st_area(natural_inter)
+# areas by age
+areas = aggregate(natural_inter$area,list(natural_inter$Sample,natural_inter$Age),sum)
+# change format
+area=reshape(areas, idvar = "Group.1", timevar = "Group.2", direction = "wide")
+# delete units
+area[,-1]=round(apply(area[,-1],2,as.vector))
+names(area) = c("Group.1", "Age1", "Age2", "Age3")
+#Age 1 oldest, age 3 now
+X = merge(X,area,all.x=T,by.x="Sample",by.y="Group.1")
+X[is.na(X)] = 0
+#Select
+X_sp = st_as_sf(X)
+X = X[, c("Sample", "site", "DEM", "PC1", "PC2", "Age1", "Age2", "Age3")]
+#Try
+#corrplot(cor(X[,-1]),  method = 'circle', diag = FALSE, type = "lower", addCoef.col = 'black')
+X$site =as.factor(X$site)
+str(X)
+######################################AMF#######################################
+###############################################################################
+X = X[match(colnames(AMF_vst), X$Sample),]
+```
+
+### Distances
+
+- With Relative abundance
+```{r}
+AMF_rela = decostand(t(AMF_Y), method = "total")
+vd_rela = vegdist(AMF_rela, method =  "bray")
+```
+
+- With 0-1
+```{r}
+AMF_PA = t(AMF_Y)[t(AMF_Y) > 0] = 1
+```
+
+
+
+
+
+```{r}
+######Distance 
+
+AMF_vst[AMF_vst<0] = 0
+#######Permanova
+adonis2(vd ~ DEM+PC1+PC2+log1p(Age1)+factor(site), data = X)
+adonis2(vd ~ DEM+PC1+PC2+log1p(Age2)+factor(site), data = X)
+adonis2(vd ~ DEM+PC1+PC2+log1p(Age3)+factor(site), data = X)
+######RDA
+rda_1 = dbrda(vd ~ DEM+PC1+PC2+log1p(Age1), data = X)
+with(X, levels(site))
+scl =3
+colvec = c("red", "blue", "green")
+plot(rda_1, type ="n", scaling = scl)
+with(X, points(rda_1, display = "sites", col = colvec[site],scaling = scl, pch = 21, bg = colvec[site]))
+points(rda_1, "cn")
+text(rda_1, "cn")
+##########################################################
+####Presence-absence 
+bina = t(AMF_Y)
+bina[bina > 0 ] = 1
+######Distance 
+vd = vegdist(bina, method = "bray", binary = T)
+#######Permanova
+adonis2(vd ~ DEM+PC1+PC2+log1p(Age1)+factor(site), data = X)
+adonis2(vd ~ DEM+PC1+PC2+log1p(Age2)+factor(site), data = X)
+adonis2(vd ~ DEM+PC1+PC2+log1p(Age3)+factor(site), data = X)
+######RDA
+rda_1 = dbrda(vd ~ DEM+PC1+PC2+log1p(Age1), data = X)
+with(X, levels(site))
+scl =3
+colvec = c("red", "blue", "green")
+plot(rda_1, type ="n", scaling = scl)
+with(X, points(rda_1, display = "sites", col = colvec[site],scaling = scl, pch = 21, bg = colvec[site]))
+points(rda_1, "cn")
+text(rda_1, "cn")
+##########################
+```
+
+
+
