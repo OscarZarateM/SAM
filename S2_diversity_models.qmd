@@ -14,7 +14,7 @@ library(tmap)
 library(ape)
 library(knitr)
 library(tidyverse)
-library(nlme)
+library(lme4)
 library(visreg)
 library(car)
 library(sjPlot)
@@ -216,19 +216,25 @@ m0 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)+site),data=data1)
 m1 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)),data=data1)
 mm = lme(Shannon~(DEM+PC1+PC2+log1p(Age1)),random= ~ 1|site,data=data1,method="ML")
 ```
+
 m0
+
 ```{r}
 #| echo: false
 #| warning: false
 tbl_regression(m0)
 ```
+
 m1
+
 ```{r}
 #| echo: false
 #| warning: false
 tbl_regression(m1)
 ```
+
 mm
+
 ```{r}
 #| echo: false
 #| warning: false
@@ -307,4 +313,215 @@ map + tm_shape(subset(natural, Age ==1)) +tm_polygons(col = "antiquewhite1")  +
   tm_shape(subset(natural, Age ==2)) +tm_polygons(col = "antiquewhite2") +
   tm_shape(subset(natural, Age ==3)) +tm_polygons(col = "antiquewhite3") +
   tm_shape(data1_sp) +tm_dots( col ="Shannon", size = "Shannon") 
+```
+
+### All fungi
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+load("Fungi_data.rda")
+## Digitalized data
+surround = st_read("surround.gpkg")
+```
+
+#### Landscape complexity-composition:
+
+Measured as natural (forest, grassland..) area inside a 100 m r buffer for each point in each Age 1, 2, 3
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+unique(surround$type)
+## Select only natural elemnets
+natural = subset(surround, type == "forest"| type == "grassland")
+## Buffers around points
+buffers = st_buffer (st_as_sf(X), 100)
+## intersection (area that is/was natural)
+natural_inter = st_intersection(buffers, natural)
+## area
+natural_inter$area = st_area(natural_inter)
+# areas by age
+areas = aggregate(natural_inter$area,list(natural_inter$Sample,natural_inter$Age),sum)
+# change format
+area=reshape(areas, idvar = "Group.1", timevar = "Group.2", direction = "wide")
+# delete units
+area[,-1]=round(apply(area[,-1],2,as.vector))
+names(area) = c("Group.1", "Age1", "Age2", "Age3")
+#Age 1 oldest, age 3 now
+X = merge(X,area,all.x=T,by.x="Sample",by.y="Group.1")
+X[is.na(X)] = 0
+#Select
+X$Sample = gsub( "-Wanda", "-ITS",X$Sample)
+X_sp = st_as_sf(X)
+X = X[, c("Sample", "site", "DEM", "PC1", "PC2", "Age1", "Age2", "Age3")]
+#Try
+
+#corrplot(cor(X[,-1]),  method = 'circle', diag = FALSE, type = "lower", addCoef.col = 'black')
+## Merge Diversity and X
+data1 = left_join(Fungi_div, X)
+###site as factor
+data1$site = as.factor(data1$site)
+```
+
+#### Richness Fungi
+
+m: linear model with DEM, PC1, PC2 (soil), Age(area), sites
+
+```{r}
+#| echo: false
+#| warning: false
+###Models
+m=lm(log(Richness)~DEM+PC1+PC2+log1p(Age1)+site,data=data1)
+summary(m)
+mm = lme(log(Richness)~(DEM+PC1+PC2+log1p(Age1)),random= ~ 1|site,data=data1,method="ML")
+#summary(mm)
+#qqnorm(mm, ~ resid(., type = "p") | site, abline = c(0, 1))
+#plot(mm)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+#gt(AIC(m, mm))
+```
+
+lme site as random
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+mm1 = lme(log(Richness)~(DEM+PC1+PC2+log1p(Age1)),random= ~ 1|site,data=data1,method="ML")
+mm2 = lme(log(Richness)~(DEM+PC1+PC2+log1p(Age2)),random= ~ 1|site,data=data1,method="ML")
+mm3 = lme(log(Richness)~(DEM+PC1+PC2+log1p(Age3)),random= ~ 1|site,data=data1,method="ML")
+```
+
+-mm1
+
+```{r}
+#| echo: false
+
+tab_model(mm1, show.icc = FALSE, show.se = TRUE, show.ci = FALSE, show.ngroups = FALSE, show.obs = FALSE, show.re.var = FALSE)
+```
+
+-mm2
+
+```{r}
+#| echo: false
+tab_model(mm2, show.icc = FALSE, show.se = TRUE, show.ci = FALSE, show.ngroups = FALSE, show.obs = FALSE, show.re.var = FALSE)
+```
+
+-mm3
+
+```{r}
+#| echo: false
+tab_model(mm3, show.icc = FALSE, show.se = TRUE, show.ci = FALSE, show.ngroups = FALSE, show.obs = FALSE, show.re.var = FALSE)
+```
+
+```{r}
+#| echo: false
+gt(AIC(mm1 , mm2, mm3))
+```
+
+```{r}
+#| echo: false
+#| warning: false
+tmap_options(check.and.fix = TRUE)
+data1_sp = st_as_sf(left_join(data1, X_sp[,c("Sample","geom")]))
+map + tm_shape(subset(natural, Age ==1)) +tm_polygons(col = "antiquewhite1")  +
+  tm_shape(subset(natural, Age ==2)) +tm_polygons(col = "antiquewhite2") +
+  tm_shape(subset(natural, Age ==3)) +tm_polygons(col = "antiquewhite3") +
+  tm_shape(data1_sp) +tm_dots( col ="Richness", breaks = c( 1500 ,2000, 2500, 3000), size = 0.5) 
+  #tm_shape(data1_sp) + tm_dots(col = "PC2")
+```
+
+
+
+
+
+
+
+
+
+
+
+### Shannon Fungi
+
+-   m0: lm with site as factor
+-   m1: lm without site
+-   mm: site as random
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+m0 = lm(Shannon~(DEM+PC1+PC2+log1p(Age2)+site),data=data1)
+summary(m0)
+m1 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)),data=data1)
+summary(m1)
+```
+
+
+lm for three ages
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+m1 = lm(Shannon~(DEM+PC1+PC2+log1p(Age1)),data=data1)
+m2 = lm(Shannon~(DEM+PC1+PC2+log1p(Age2)),data=data1)
+m3 = lm(Shannon~(DEM+PC1+PC2+log1p(Age3)),data=data1)
+Variables = c("DEM", "PC1", "PC2", "Area")
+r_models = list (m1, m2, m3)
+Res_Shannon = data.frame()
+for (mod in r_models) {
+  R_mg = as.data.frame(summary(mod)$coefficients)
+  Coefficients = c()
+  for (v in 2:5) {
+    Coefficients = c(Coefficients, paste0("b = " ,round(R_mg[v,1],3),"+/-" ,round(R_mg[v,2],3)," p = ",round( R_mg[v,4], 3)))
+  }
+  Res = data.frame(cbind(Variables, Coefficients))
+  Res = rbind(Res, c("Adj.R2", round(summary(mod)$ adj.r.squared, 3)))
+  Res_Shannon = rbind(Res_Shannon, Res)
+}
+```
+
+```{r}
+#| echo: false
+#| warning: false
+gt_Shannon = gt(Res_Shannon)  
+gt_Shannon = gt_Shannon  |> tab_row_group(label = "Age 3",rows = 10:15)|>
+  tab_row_group(label = "Age 2",rows = 5:10)|>
+  tab_row_group(label = "Age 1",rows = 1:5)|>
+  tab_header(title = "Shannon Fungi")
+gt_Shannon
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+#For Spatial autocorrelation
+dist=st_distance(st_as_sf(data1_sp))
+# Need to make matrix
+dist = matrix(dist,nrow(dist),ncol(dist))
+dists.inv = 1/dist
+diag(dists.inv) = 0
+resid=residuals(m1)
+Moran.I(resid,dists.inv)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| output: false
+data1_sp = st_as_sf(left_join(data1, X_sp[,c("Sample","geom")]))
+map + tm_shape(subset(natural, Age ==1)) +tm_polygons(col = "antiquewhite1")  +
+  tm_shape(subset(natural, Age ==2)) +tm_polygons(col = "antiquewhite2") +
+  tm_shape(subset(natural, Age ==3)) +tm_polygons(col = "antiquewhite3") +
+  tm_shape(data1_sp) +tm_dots( col ="Shannon", size = "Shannon", breaks = c(100, 150, 200, 250, 300)) 
 ```
