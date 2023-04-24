@@ -24,10 +24,21 @@ library(sjstats)
 
 #### DATA
 
+-   AMF_C : Taxonomy
+-   AMD_div : Diversity metrics
+-   AMF_T: Traits
+-   AMF_Y: AMF community matrix
+-   surround: landscape
+
 ```{r}
 load("SAM_data.rda")
 ## Digitalized data
 surround = st_read("surround.gpkg")
+```
+
+#### Landscape complexity-composition: measure as natural area inside a 100 m r buffer for each point in each Age
+
+```{r}
 unique(surround$type)
 ## Select only natural elemnets
 natural = subset(surround, type == "forest"| type == "grassland")
@@ -51,7 +62,5 @@ X[is.na(X)] = 0
 X_sp = st_as_sf(X)
 X = X[, c("Sample", "site", "DEM", "PC1", "PC2", "Age1", "Age2", "Age3")]
 #Try
-corrplot(cor(X[,-1]),  method = 'circle', diag = FALSE, type = "lower", addCoef.col = 'black')
-
-
+#corrplot(cor(X[,-1]),  method = 'circle', diag = FALSE, type = "lower", addCoef.col = 'black')
 ```
