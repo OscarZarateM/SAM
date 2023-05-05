@@ -1,0 +1,116 @@
+---
+title: "S4_functional"
+format: html
+editor: visual
+---
+
+
+
+```{r}
+library(vegan)
+library(readxl)
+library(tidyverse)
+```
+
+
+#### Functional AM
+
+```{r}
+load("SAM_data.rda")
+```
+
+Ruderality
+
+```{r}
+Rude = read.csv("VT_Culturable.csv", header = T)
+comm.cult = Rude[match(rownames(AMF_Y),gsub("-",".",gsub("VT","VTX",Rude$VT))),]##reorder and match the Culturable status VT names with the ones in filtered (excl. singletons and samples with sufficient amount of reads) community matrix (containing read counts)
+
+```
+Proportion
+
+
+```{r}
+r = as_tibble(AMF_Y) %>% 
+  mutate(ruderality = Rude$Culturable[match(rownames(AMF_Y),gsub("-",".",gsub("VT","VTX",Rude$VT)))]) %>% 
+  filter(!is.na(ruderality))
+
+p = r %>% 
+  group_by(ruderality) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  t()
+p = as.data.frame(p)
+names(p) = c("No_Culturable", "Culturable")
+p = p[-1,] 
+
+p$Cul_pro = p$Culturable / (p$Culturable +p$No_Culturable )
+p
+```
+
+Presence- Absence   
+
+```{r}
+AMF_PA = (AMF_Y) 
+AMF_PA[AMF_PA  > 0] = 1
+
+r = as_tibble(AMF_PA) %>% 
+  mutate(ruderality = Rude$Culturable[match(rownames(AMF_PA),gsub("-",".",gsub("VT","VTX",Rude$VT)))]) %>% 
+  filter(!is.na(ruderality))
+
+
+p_PA = r %>% 
+  group_by(ruderality) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  t()
+p_PA = as.data.frame(p_PA)
+names(p_PA) = c("No_Culturable", "Culturable")
+p_PA = p_PA[-1,] 
+
+p_PA$Cul_p_PA = p_PA$Culturable / (p_PA$Culturable +p_PA$No_Culturable )
+
+p = cbind(p, p_PA$Cul_p_PA)
+```
+- Proportion of reads (Rel.Abundance) of Culturable AM per Sample
+- Proportion of VT that are culturable per sample
+
+```{r}
+p
+```
+
+
+
+
+### Families 
+
+```{r}
+guild = read_xlsx("guilds.xlsx")
+guild = left_join(AMF_C, guild)
+guild = guild %>% select(VT, Guild) %>% filter(!is.na(Guild))
+```
+
+Proportions 
+
+```{r}
+rnames = row.names(AMF_Y)
+ p = as.data.frame(AMF_Y) %>% 
+  mutate(VT = rnames) %>% 
+  left_join(guild) %>% 
+  filter(!is.na(Guild)) %>% 
+  group_by(Guild) %>% 
+  summarise(across(where(is.numeric),sum)) %>% 
+  ungroup() %>% 
+  t()
+p = as.data.frame(p)
+names(p) = c("Ancestral", "Edaphophilic" ,"Rhizophilic") 
+p = p[-1,]
+p$Ancestral = as.numeric(p$Ancestral)
+p$Edaphophilic = as.numeric(p$Edaphophilic)
+p$Rhizophilic = as.numeric(p$Rhizophilic)
+p$Ancestral_p = p$Ancestral/ (p$Ancestral + p$Edaphophilic + p$Rhizophilic)
+p$Edaphophilic_p = p$Edaphophilic/ (p$Ancestral + p$Edaphophilic + p$Rhizophilic)
+p$Rhizophilic = p$Rhizophilic/ (p$Ancestral + p$Edaphophilic + p$Rhizophilic)
+p
+```
+
+
